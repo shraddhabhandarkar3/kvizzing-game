@@ -6,6 +6,14 @@ import cors from 'cors';
 const app = express();
 app.use(cors());
 
+app.get('/', (req, res) => {
+  res.send('Kvizzing Backend is running! 🚀');
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', message: 'Server is healthy' });
+});
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
