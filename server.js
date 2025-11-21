@@ -7,11 +7,11 @@ const app = express();
 app.use(cors());
 
 app.get('/', (req, res) => {
-  res.send('Kvizzing Backend is running! 🚀');
+  res.send('Kvizzing Game Server is Running! 🎮');
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Server is healthy' });
+  res.json({ status: 'ok', players: Object.keys(players).length });
 });
 
 const httpServer = createServer(app);
