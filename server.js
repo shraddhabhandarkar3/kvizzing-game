@@ -12,25 +12,40 @@ let buzzerQueue = [];
 let buzzerLocked = false;
 let currentQuestion = null;
 
-// HTTP Routes
+// HTTP Routes with error handling
 app.get('/', (req, res) => {
-  res.send(`
-    <html>
-      <body style="font-family: Arial; text-align: center; padding: 50px;">
-        <h1>🎮 Kvizzing Game Server</h1>
-        <p>Server is running!</p>
-        <p>Connected players: ${Object.keys(players).length}</p>
-      </body>
-    </html>
-  `);
+  try {
+    console.log('GET / request received');
+    const playerCount = Object.keys(players).length;
+    console.log('Player count:', playerCount);
+    
+    res.send(`
+      <html>
+        <body style="font-family: Arial; text-align: center; padding: 50px;">
+          <h1>🎮 Kvizzing Game Server</h1>
+          <p>Server is running!</p>
+          <p>Connected players: ${playerCount}</p>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error('Error in / route:', error);
+    res.status(500).send('Internal Server Error: ' + error.message);
+  }
 });
 
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    players: Object.keys(players).length,
-    timestamp: new Date().toISOString()
-  });
+  try {
+    console.log('GET /health request received');
+    res.json({ 
+      status: 'ok', 
+      players: Object.keys(players).length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error in /health route:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 const httpServer = createServer(app);
@@ -183,4 +198,14 @@ const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`🎮 Players can connect from phones on the same WiFi`);
+  console.log(`📡 Server ready to accept connections`);
+});
+
+// Global error handlers
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (error) => {
+  console.error('Unhandled Rejection:', error);
 });
