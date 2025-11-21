@@ -36,7 +36,7 @@ const PlayerView = () => {
       localStorage.setItem('kvizzing-player-id', newId);
     }
 
-    const newSocket = io('http://192.168.4.37:3001');
+    const newSocket = io('kvizzing-game-production.up.railway.app');
     setSocket(newSocket);
 
     newSocket.on('rejoin-success', (data) => {
@@ -206,7 +206,7 @@ const QuizmasterView = () => {
 };
 
   useEffect(() => {
-    const newSocket = io('http://192.168.4.37:3001');
+    const newSocket = io('kvizzing-game-production.up.railway.app');
     setSocket(newSocket);
 
     newSocket.on('players-update', (updatedPlayers) => {
