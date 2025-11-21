@@ -6,12 +6,31 @@ import cors from 'cors';
 const app = express();
 app.use(cors());
 
+// Game state - MUST be declared before routes
+let players = {}; // { socketId: { name, score, playerId } }
+let buzzerQueue = [];
+let buzzerLocked = false;
+let currentQuestion = null;
+
+// HTTP Routes
 app.get('/', (req, res) => {
-  res.send('Kvizzing Game Server is Running! 🎮');
+  res.send(`
+    <html>
+      <body style="font-family: Arial; text-align: center; padding: 50px;">
+        <h1>🎮 Kvizzing Game Server</h1>
+        <p>Server is running!</p>
+        <p>Connected players: ${Object.keys(players).length}</p>
+      </body>
+    </html>
+  `);
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', players: Object.keys(players).length });
+  res.json({ 
+    status: 'ok', 
+    players: Object.keys(players).length,
+    timestamp: new Date().toISOString()
+  });
 });
 
 const httpServer = createServer(app);
@@ -22,122 +41,98 @@ const io = new Server(httpServer, {
   }
 });
 
-// Game state
-let players = {}; // { socketId: { name, score, playerId } }
-let buzzerQueue = [];
-let buzzerLocked = false;
-let currentQuestion = null;
-
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
   // Player joins
-socket.on('join-game', ({ name, playerId }) => {
-  // Check if player with this playerId already exists
-  const existingPlayer = Object.values(players).find(p => p.playerId === playerId);
-  
-  if (existingPlayer) {
-    // Update the socket ID for reconnecting player
-    // First remove old socket entry
-    Object.keys(players).forEach(key => {
-      if (players[key].playerId === playerId) {
-        delete players[key];
-      }
-    });
+  socket.on('join-game', ({ name, playerId }) => {
+    // Check if player with this playerId already exists
+    const existingPlayer = Object.values(players).find(p => p.playerId === playerId);
     
-    // Add with new socket ID
-    existingPlayer.socketId = socket.id;
-    players[socket.id] = existingPlayer;
-    socket.emit('rejoin-success', existingPlayer);
-    
-    // Broadcast rejoin message
-    io.emit('player-rejoined', { 
-      name: existingPlayer.name, 
-      score: existingPlayer.score 
-    });
-    
-    console.log('Player reconnected:', existingPlayer.name, '- Score:', existingPlayer.score);
-  } else {
-    // New player
-    players[socket.id] = {
-      name,
-      score: 0,
-      playerId: playerId || socket.id,
-      socketId: socket.id
-    };
-    socket.emit('join-success', players[socket.id]);
-    console.log('New player joined:', players[socket.id].name);
-  }
+    if (existingPlayer) {
+      // Update the socket ID for reconnecting player
+      // First remove old socket entry
+      Object.keys(players).forEach(key => {
+        if (players[key].playerId === playerId) {
+          delete players[key];
+        }
+      });
+      
+      // Add with new socket ID
+      existingPlayer.socketId = socket.id;
+      players[socket.id] = existingPlayer;
+      socket.emit('rejoin-success', existingPlayer);
+      
+      // Broadcast rejoin message
+      io.emit('player-rejoined', { 
+        name: existingPlayer.name, 
+        score: existingPlayer.score 
+      });
+      
+      console.log('Player reconnected:', existingPlayer.name, '- Score:', existingPlayer.score);
+    } else {
+      // New player
+      players[socket.id] = {
+        name,
+        score: 0,
+        playerId: playerId || socket.id,
+        socketId: socket.id
+      };
+      socket.emit('join-success', players[socket.id]);
+      console.log('New player joined:', players[socket.id].name);
+    }
 
-  // Broadcast updated player list
-  const uniquePlayers = Object.values(players).filter((player, index, self) =>
-    index === self.findIndex(p => p.playerId === player.playerId)
-  );
-  io.emit('players-update', uniquePlayers);
-});
+    // Broadcast updated player list
+    const uniquePlayers = Object.values(players).filter((player, index, self) =>
+      index === self.findIndex(p => p.playerId === player.playerId)
+    );
+    io.emit('players-update', uniquePlayers);
+  });
 
   // Buzzer press
-socket.on('buzz', () => {
-  if (players[socket.id]) {
-    const player = players[socket.id];
-    
-    // Check if this player already buzzed
-    const alreadyBuzzed = buzzerQueue.find(b => b.playerId === player.playerId);
-    
-    if (!alreadyBuzzed) {
-      // Add to queue
-      buzzerQueue.push({
-        playerId: player.playerId,
-        name: player.name,
-        timestamp: Date.now()
-      });
+  socket.on('buzz', () => {
+    if (players[socket.id]) {
+      const player = players[socket.id];
       
-      // Broadcast to everyone
-      io.emit('buzz-received', {
-        playerId: player.playerId,
-        name: player.name,
-        timestamp: Date.now()
-      });
+      // Check if this player already buzzed
+      const alreadyBuzzed = buzzerQueue.find(b => b.playerId === player.playerId);
       
-      console.log('Buzz from:', player.name, '- Position:', buzzerQueue.length);
+      if (!alreadyBuzzed) {
+        // Add to queue
+        buzzerQueue.push({
+          playerId: player.playerId,
+          name: player.name,
+          timestamp: Date.now()
+        });
+        
+        // Broadcast to everyone
+        io.emit('buzz-received', {
+          playerId: player.playerId,
+          name: player.name,
+          timestamp: Date.now()
+        });
+        
+        console.log('Buzz from:', player.name, '- Position:', buzzerQueue.length);
+      }
     }
-  }
-});
+  });
 
-// Disconnect
-socket.on('disconnect', () => {
-  const player = players[socket.id];
-  if (player) {
-    console.log('Player disconnected:', player.name);
-    
-    // Broadcast that player left
-    io.emit('player-left', { 
-      name: player.name, 
-      score: player.score 
-    });
-    
-    // Don't delete - keep for reconnection
-    // delete players[socket.id];
-  }
-  console.log('Client disconnected:', socket.id);
-});
   // Quizmaster activates buzzer
-socket.on('activate-buzzer', (questionData) => {
-  buzzerLocked = false;
-  buzzerQueue = [];
-  currentQuestion = questionData;
-  io.emit('buzzer-active', questionData);
-  console.log('Buzzer activated for question:', questionData);
-});
+  socket.on('activate-buzzer', (questionData) => {
+    buzzerLocked = false;
+    buzzerQueue = [];
+    currentQuestion = questionData;
+    io.emit('buzzer-active', questionData);
+    console.log('Buzzer activated for question:', questionData);
+  });
 
   // Quizmaster resets buzzer
-  // Quizmaster resets buzzer
-socket.on('reset-buzzer', () => {
-  buzzerLocked = false;
-  buzzerQueue = []; // Clear the queue
-  io.emit('buzzer-reset');
-  console.log('Buzzer reset');
-});
+  socket.on('reset-buzzer', () => {
+    buzzerLocked = false;
+    buzzerQueue = [];
+    io.emit('buzzer-reset');
+    console.log('Buzzer reset');
+  });
 
   // Update player score
   socket.on('update-score', ({ playerId, points }) => {
@@ -165,10 +160,22 @@ socket.on('reset-buzzer', () => {
     console.log('Game reset');
   });
 
-  // Disconnect
+  // Disconnect - SINGLE handler
   socket.on('disconnect', () => {
+    const player = players[socket.id];
+    if (player) {
+      console.log('Player disconnected:', player.name);
+      
+      // Broadcast that player left
+      io.emit('player-left', { 
+        name: player.name, 
+        score: player.score 
+      });
+      
+      // Keep player data for reconnection
+      // delete players[socket.id];
+    }
     console.log('Client disconnected:', socket.id);
-    // Keep player data for reconnection
   });
 });
 
